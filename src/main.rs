@@ -1,24 +1,27 @@
-extern crate kuchiki;
+extern crate regex;
 extern crate reqwest;
+extern crate select;
 
-use kuchiki::traits::TendrilSink;
+use regex::Regex;
+use select::document::Document;
+use select::predicate::{Class, Name, Predicate};
 
 fn scrape() -> Result<(), Box<std::error::Error>> {
     let body = reqwest::get("https://www.districtdoughnut.com")?.text()?;
     //println!("{}", body);
-    let selector = "div.margin-wrapper img";
 
-    let dom = kuchiki::parse_html().one(body);
+    let dom = Document::from(body.as_str());
 
     let mut a = 0;
-
-    for css_match in dom.select(selector).unwrap() {
+    for node in dom.find(Class("margin-wrapper").descendant(Name("a"))) {
         a += 1;
-        let as_node = css_match.as_node();
 
-        let flavor = as_node.text_contents();
+        let flavor = node.attr("data-title").unwrap();
+        let re = Regex::new(r"<.+?>").unwrap();
+        let description = re.replace_all(node.attr("data-description").unwrap(), "");
 
         println!("{}", flavor);
+        println!("  {}", description);
     }
 
     println!("Found {} flavors", a);

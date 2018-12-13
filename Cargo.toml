@@ -5,5 +5,6 @@ authors = ["Josh Hawkins <hawkins@users.noreply.github.com>"]
 edition = "2018"
 
 [dependencies]
-kuchiki = "0.7.1"
 reqwest = "0.9.5"
+select = "0.4.2"
+regex = "1.1.0"
