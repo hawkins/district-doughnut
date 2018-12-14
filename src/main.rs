@@ -5,33 +5,34 @@ extern crate select;
 use regex::Regex;
 use select::document::Document;
 use select::predicate::{Class, Name, Predicate};
+use std::vec::Vec;
 
-fn scrape() -> Result<(), Box<std::error::Error>> {
+fn scrape() -> Result<Vec<(String, String)>, Box<std::error::Error>> {
     let body = reqwest::get("https://www.districtdoughnut.com")?.text()?;
-    //println!("{}", body);
 
     let dom = Document::from(body.as_str());
 
-    let mut a = 0;
+    let mut flavors = Vec::new();
     for node in dom.find(Class("margin-wrapper").descendant(Name("a"))) {
-        a += 1;
-
-        let flavor = node.attr("data-title").unwrap();
+        let flavor = node.attr("data-title").unwrap().to_owned();
         let re = Regex::new(r"<.+?>").unwrap();
-        let description = re.replace_all(node.attr("data-description").unwrap(), "");
+        let description = re
+            .replace_all(node.attr("data-description").unwrap(), "")
+            .into_owned();
 
-        println!("{}", flavor);
-        println!("  {}", description);
+        flavors.push((flavor, description));
     }
 
-    println!("Found {} flavors", a);
+    for flavor in flavors.clone() {
+        println!("{}:\t{}", flavor.0, flavor.1);
+    }
 
-    Ok(())
+    Ok(flavors)
 }
 
 fn main() {
     match scrape() {
-        Ok(_) => println!("Pass"),
+        Ok(c) => println!("Pass: {}", c.len()),
         Err(e) => println!("Fail: {}", e.to_string()),
     }
 }
