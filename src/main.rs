@@ -6,13 +6,18 @@ extern crate serde_derive;
 extern crate log;
 extern crate regex;
 extern crate reqwest;
+extern crate rusoto_core;
+extern crate rusoto_dynamodb;
 extern crate select;
 extern crate simple_logger;
 
 use lambda::error::HandlerError;
 use regex::Regex;
+use rusoto_core::Region;
+use rusoto_dynamodb::{AttributeValue, DynamoDb, DynamoDbClient, GetItemInput};
 use select::document::Document;
 use select::predicate::{Class, Name, Predicate};
+use std::collections::HashMap;
 use std::error::Error;
 use std::vec::Vec;
 
@@ -22,6 +27,35 @@ struct CustomEvent {}
 #[derive(Serialize, Clone)]
 struct CustomOutput {
     message: String,
+}
+
+fn is_flavor_new(flavor: &str) -> bool {
+    let mut query_key: HashMap<String, AttributeValue> = HashMap::new();
+    query_key.insert(
+        String::from("flavor"),
+        AttributeValue {
+            s: Some(flavor.to_string()),
+            ..Default::default()
+        },
+    );
+
+    let query_flavors = GetItemInput {
+        key: query_key,
+        table_name: String::from("district-doughnut-flavors"),
+        ..Default::default()
+    };
+
+    let client = DynamoDbClient::new(Region::UsEast1);
+
+    match client.get_item(query_flavors).sync() {
+        Ok(result) => match result.item {
+            Some(_) => false,
+            None => true,
+        },
+        Err(error) => {
+            panic!("Error: {:?}", error);
+        }
+    }
 }
 
 fn scrape() -> Result<Vec<(String, String)>, Box<std::error::Error>> {
@@ -41,7 +75,11 @@ fn scrape() -> Result<Vec<(String, String)>, Box<std::error::Error>> {
     }
 
     for flavor in flavors.clone() {
-        println!("{}:\t{}", flavor.0, flavor.1);
+        if is_flavor_new(&flavor.0) {
+            println!("*NEW* {}: {}", flavor.0, flavor.1);
+        } else {
+            println!("{}: {}", flavor.0, flavor.1);
+        }
     }
 
     Ok(flavors)
