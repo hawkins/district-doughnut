@@ -16,11 +16,8 @@ use select::predicate::{Class, Name, Predicate};
 use std::error::Error;
 use std::vec::Vec;
 
-#[derive(Deserialize, Clone)]
-struct CustomEvent {
-    #[serde(rename = "firstName")]
-    first_name: String,
-}
+#[derive(Deserialize)]
+struct CustomEvent {}
 
 #[derive(Serialize, Clone)]
 struct CustomOutput {
@@ -50,20 +47,28 @@ fn scrape() -> Result<Vec<(String, String)>, Box<std::error::Error>> {
     Ok(flavors)
 }
 
-fn my_handler(e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, HandlerError> {
+fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, HandlerError> {
     match scrape() {
-        Ok(c) => println!("Pass: {}", c.len()),
-        Err(e) => println!("Fail: {}", e.to_string()),
-    }
+        Ok(flavors) => {
+            let mut flavor_names = Vec::new();
+            for flavor in flavors {
+                flavor_names.push(flavor.0);
+            }
 
-    if e.first_name == "" {
-        error!("Empty first name in request {}", c.aws_request_id);
-        return Err(c.new_error("Empty first name"));
+            Ok(CustomOutput {
+                message: format!("Found flavors: {}", flavor_names.join(", ")),
+            })
+        }
+        Err(e) => {
+            println!("Fail: {}", e.to_string());
+            error!(
+                "Error processing request {}: {}",
+                c.aws_request_id,
+                e.to_string()
+            );
+            Err(c.new_error("Error scraping website"))
+        }
     }
-
-    Ok(CustomOutput {
-        message: format!("Hello, {}!", e.first_name),
-    })
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
