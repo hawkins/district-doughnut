@@ -17,6 +17,7 @@ log = "^0.4"
 simple_logger = "^1"
 rusoto_core = "0.36.0"
 rusoto_dynamodb = "0.36.0"
+rusoto_sns = "0.36.0"
 
 [[bin]]
 name = "bootstrap"

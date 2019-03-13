@@ -17,9 +17,11 @@ use rusoto_core::Region;
 use rusoto_dynamodb::{
     AttributeValue, DynamoDb, DynamoDbClient, GetItemInput, ScanError, ScanInput, ScanOutput,
 };
+use rusoto_sns::{PublishError, PublishInput, PublishResponse, Sns, SnsClient};
 use select::document::Document;
 use select::predicate::{Class, Name, Predicate};
 use std::collections::HashMap;
+use std::env;
 use std::error::Error;
 use std::vec::Vec;
 
@@ -29,6 +31,27 @@ struct CustomEvent {}
 #[derive(Serialize, Clone)]
 struct CustomOutput {
     message: String,
+}
+
+fn alert(message: &str) -> Result<PublishResponse, PublishError> {
+    match env::var("TOPIC_ARN") {
+        Ok(arn) => {
+            let client = SnsClient::new(Region::UsEast1);
+            client
+                .publish(PublishInput {
+                    message: String::from(message),
+                    topic_arn: Some(arn),
+                    ..Default::default()
+                })
+                .sync()
+        }
+        Err(_e) => {
+            error!("TOPIC_ARN not set");
+
+            // Bad practice to hijack this error type....
+            Err(PublishError::NotFound(String::from("TOPIC_ARN not set")))
+        }
+    }
 }
 
 fn get_flavors() -> Result<ScanOutput, ScanError> {
@@ -85,7 +108,14 @@ fn scrape() -> Result<Vec<(String, String)>, Box<std::error::Error>> {
 
     for flavor in flavors.clone() {
         if is_flavor_new(&flavor.0) {
-            println!("*NEW* {}: {}", flavor.0, flavor.1);
+            let notice = format!("*NEW* {}: {}", flavor.0, flavor.1);
+            match alert(&notice) {
+                Ok(res) => {
+                    dbg!(res);
+                }
+                Err(e) => error!("Error: {}", e.to_string()),
+            };
+            println!("{}", notice);
         } else {
             println!("{}: {}", flavor.0, flavor.1);
         }
