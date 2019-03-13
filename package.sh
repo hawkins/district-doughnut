@@ -4,7 +4,11 @@ set -e
 # Debug builds are very large and  applications
 # may well exceed the maximum deployment package
 # size for an AWS Lambda function.
-docker run --rm -it -v "$(pwd)":/home/rust/src messense/rust-musl-cross:x86_64-musl cargo build --release
+docker run --rm \
+  -v $(PWD):/code \
+  -v $(echo $HOME)/.cargo/registry:/root/.cargo/registry \
+  -v $(echo $HOME)/.cargo/git:/root/.cargo/git \
+  softprops/lambda-rust
 
 # Or instead of Docker, if we could locally link openssl...
 #cargo build --release --target x86_64-unknown-linux-musl
