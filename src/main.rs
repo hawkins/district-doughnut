@@ -14,7 +14,9 @@ extern crate simple_logger;
 use lambda::error::HandlerError;
 use regex::Regex;
 use rusoto_core::Region;
-use rusoto_dynamodb::{AttributeValue, DynamoDb, DynamoDbClient, GetItemInput};
+use rusoto_dynamodb::{
+    AttributeValue, DynamoDb, DynamoDbClient, GetItemInput, ScanError, ScanInput, ScanOutput,
+};
 use select::document::Document;
 use select::predicate::{Class, Name, Predicate};
 use std::collections::HashMap;
@@ -27,6 +29,16 @@ struct CustomEvent {}
 #[derive(Serialize, Clone)]
 struct CustomOutput {
     message: String,
+}
+
+fn get_flavors() -> Result<ScanOutput, ScanError> {
+    let input = ScanInput {
+        table_name: String::from("district-doughnut-flavors"),
+        ..Default::default()
+    };
+
+    let client = DynamoDbClient::new(Region::UsEast1);
+    client.scan(input).sync()
 }
 
 fn is_flavor_new(flavor: &str) -> bool {
@@ -48,10 +60,7 @@ fn is_flavor_new(flavor: &str) -> bool {
     let client = DynamoDbClient::new(Region::UsEast1);
 
     match client.get_item(query_flavors).sync() {
-        Ok(result) => match result.item {
-            Some(_) => false,
-            None => true,
-        },
+        Ok(result) => result.item.is_none(),
         Err(error) => {
             panic!("Error: {:?}", error);
         }
@@ -86,6 +95,15 @@ fn scrape() -> Result<Vec<(String, String)>, Box<std::error::Error>> {
 }
 
 fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, HandlerError> {
+    match get_flavors() {
+        Ok(flavors) => {
+            dbg!(flavors);
+        }
+        Err(e) => {
+            println!("Error getting flavors: {}", e.to_string());
+        }
+    }
+
     match scrape() {
         Ok(flavors) => {
             let mut flavor_names = Vec::new();
