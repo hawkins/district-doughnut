@@ -15,8 +15,8 @@ use lambda::error::HandlerError;
 use regex::Regex;
 use rusoto_core::Region;
 use rusoto_dynamodb::{
-    AttributeValue, DynamoDb, DynamoDbClient, PutItemError, PutItemInput, PutItemOutput, ScanError,
-    ScanInput, ScanOutput,
+    AttributeValue, DeleteItemError, DeleteItemInput, DeleteItemOutput, DynamoDb, DynamoDbClient,
+    PutItemError, PutItemInput, PutItemOutput, ScanError, ScanInput, ScanOutput,
 };
 use rusoto_sns::{PublishError, PublishInput, PublishResponse, Sns, SnsClient};
 use select::document::Document;
@@ -35,7 +35,7 @@ struct CustomOutput {
     message: String,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 struct Flavor {
     flavor: String,
     description: String,
@@ -93,6 +93,26 @@ fn save_new_flavor(
         ..Default::default()
     };
     dynamodb.put_item(input).sync()
+}
+
+fn remove_old_flavor(
+    dynamodb: &DynamoDbClient,
+    flavor: &Flavor,
+) -> Result<DeleteItemOutput, DeleteItemError> {
+    let mut key = HashMap::<String, AttributeValue>::new();
+    key.insert(
+        String::from("flavor"),
+        AttributeValue {
+            s: Some(flavor.flavor.to_owned()),
+            ..Default::default()
+        },
+    );
+    let input = DeleteItemInput {
+        table_name: String::from("district-doughnut-flavors"),
+        key,
+        ..Default::default()
+    };
+    dynamodb.delete_item(input).sync()
 }
 
 fn is_flavor_new(flavor: &Flavor, previous_flavors: &[Flavor]) -> bool {
@@ -176,10 +196,10 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
         }
     }
 
-    for flavor in current_flavors {
+    for flavor in &current_flavors {
+        flavor_names.push(flavor.flavor.to_owned());
         if is_flavor_new(&flavor, &previous_flavors) {
-            flavor_names.push(flavor.flavor.to_owned());
-            new_flavors.push(flavor);
+            new_flavors.push(flavor.clone());
         }
     }
 
@@ -204,8 +224,33 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
         }
     }
 
-    // TODO: Trim no longer available flavors by looking at previous - current and alert sns
     let mut unavailable_flavors = Vec::new();
+    for flavor in previous_flavors {
+        if !current_flavors.contains(&flavor) {
+            unavailable_flavors.push(flavor);
+        }
+    }
+    for flavor in unavailable_flavors {
+        let notice = format!("{} is no longer available", flavor.flavor);
+
+        info!("{}", notice);
+
+        match alert(&sns, &notice) {
+            Ok(_res) => {
+                info!("Successfully notified SNS");
+            }
+            Err(e) => error!("Error: {}", e.to_string()),
+        };
+
+        match remove_old_flavor(&dynamodb, &flavor) {
+            Ok(_res) => {
+                info!("Removed {} from database", flavor.flavor);
+            }
+            Err(e) => {
+                error!("Error: {}", e.to_string());
+            }
+        }
+    }
 
     Ok(CustomOutput {
         message: format!("Found flavors: {}", flavor_names.join(", ")),
