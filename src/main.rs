@@ -33,6 +33,11 @@ struct CustomOutput {
     message: String,
 }
 
+struct Flavor {
+    flavor: String,
+    description: String,
+}
+
 fn alert(message: &str) -> Result<PublishResponse, PublishError> {
     match env::var("TOPIC_ARN") {
         Ok(arn) => {
@@ -54,7 +59,7 @@ fn alert(message: &str) -> Result<PublishResponse, PublishError> {
     }
 }
 
-fn get_flavors() -> Result<ScanOutput, ScanError> {
+fn query_previous_flavors() -> Result<ScanOutput, ScanError> {
     let input = ScanInput {
         table_name: String::from("district-doughnut-flavors"),
         ..Default::default()
@@ -90,7 +95,7 @@ fn is_flavor_new(flavor: &str) -> bool {
     }
 }
 
-fn scrape() -> Result<Vec<(String, String)>, Box<std::error::Error>> {
+fn scrape_new_flavors() -> Result<Vec<(String, String)>, Box<std::error::Error>> {
     let body = reqwest::get("https://www.districtdoughnut.com")?.text()?;
 
     let dom = Document::from(body.as_str());
@@ -125,16 +130,35 @@ fn scrape() -> Result<Vec<(String, String)>, Box<std::error::Error>> {
 }
 
 fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, HandlerError> {
-    match get_flavors() {
-        Ok(flavors) => {
-            dbg!(flavors);
+    let mut previous_flavors: Vec<Flavor> = Vec::new();
+
+    match query_previous_flavors() {
+        Ok(f) => {
+            dbg!(&f);
+            match f.items {
+                Some(items) => {
+                    for item in items {
+                        // We know this is safe because both of these are String values
+                        let fl: String = item["flavor"].to_owned().s.unwrap();
+                        let de: String = item["description"].to_owned().s.unwrap();
+                        println!("Found flavor {}", &fl);
+                        previous_flavors.push(Flavor {
+                            flavor: fl,
+                            description: de,
+                        });
+                    }
+                }
+                None => {
+                    println!("No flavors saved");
+                }
+            }
         }
         Err(e) => {
             println!("Error getting flavors: {}", e.to_string());
         }
     }
 
-    match scrape() {
+    match scrape_new_flavors() {
         Ok(flavors) => {
             let mut flavor_names = Vec::new();
             for flavor in flavors {
