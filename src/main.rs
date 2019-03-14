@@ -14,13 +14,10 @@ extern crate simple_logger;
 use lambda::error::HandlerError;
 use regex::Regex;
 use rusoto_core::Region;
-use rusoto_dynamodb::{
-    AttributeValue, DynamoDb, DynamoDbClient, GetItemInput, ScanError, ScanInput, ScanOutput,
-};
+use rusoto_dynamodb::{DynamoDb, DynamoDbClient, ScanError, ScanInput, ScanOutput};
 use rusoto_sns::{PublishError, PublishInput, PublishResponse, Sns, SnsClient};
 use select::document::Document;
 use select::predicate::{Class, Name, Predicate};
-use std::collections::HashMap;
 use std::env;
 use std::error::Error;
 use std::vec::Vec;
@@ -33,6 +30,7 @@ struct CustomOutput {
     message: String,
 }
 
+#[derive(PartialEq)]
 struct Flavor {
     flavor: String,
     description: String,
@@ -69,38 +67,16 @@ fn query_previous_flavors() -> Result<ScanOutput, ScanError> {
     client.scan(input).sync()
 }
 
-fn is_flavor_new(flavor: &str) -> bool {
-    let mut query_key: HashMap<String, AttributeValue> = HashMap::new();
-    query_key.insert(
-        String::from("flavor"),
-        AttributeValue {
-            s: Some(flavor.to_string()),
-            ..Default::default()
-        },
-    );
-
-    let query_flavors = GetItemInput {
-        key: query_key,
-        table_name: String::from("district-doughnut-flavors"),
-        ..Default::default()
-    };
-
-    let client = DynamoDbClient::new(Region::UsEast1);
-
-    match client.get_item(query_flavors).sync() {
-        Ok(result) => result.item.is_none(),
-        Err(error) => {
-            panic!("Error: {:?}", error);
-        }
-    }
+fn is_flavor_new(flavor: &Flavor, previous_flavors: &Vec<Flavor>) -> bool {
+    !previous_flavors.contains(flavor)
 }
 
-fn scrape_new_flavors() -> Result<Vec<(String, String)>, Box<std::error::Error>> {
+fn scrape_new_flavors() -> Result<Vec<Flavor>, Box<std::error::Error>> {
     let body = reqwest::get("https://www.districtdoughnut.com")?.text()?;
 
     let dom = Document::from(body.as_str());
 
-    let mut flavors = Vec::new();
+    let mut flavors: Vec<Flavor> = Vec::new();
     for node in dom.find(Class("margin-wrapper").descendant(Name("a"))) {
         let flavor = node.attr("data-title").unwrap().to_owned();
         let re = Regex::new(r"<.+?>").unwrap();
@@ -108,22 +84,10 @@ fn scrape_new_flavors() -> Result<Vec<(String, String)>, Box<std::error::Error>>
             .replace_all(node.attr("data-description").unwrap(), "")
             .into_owned();
 
-        flavors.push((flavor, description));
-    }
-
-    for flavor in flavors.clone() {
-        if is_flavor_new(&flavor.0) {
-            let notice = format!("*NEW* {}: {}", flavor.0, flavor.1);
-            match alert(&notice) {
-                Ok(res) => {
-                    dbg!(res);
-                }
-                Err(e) => error!("Error: {}", e.to_string()),
-            };
-            println!("{}", notice);
-        } else {
-            println!("{}: {}", flavor.0, flavor.1);
-        }
+        flavors.push(Flavor {
+            flavor,
+            description,
+        });
     }
 
     Ok(flavors)
@@ -159,10 +123,24 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
     }
 
     match scrape_new_flavors() {
-        Ok(flavors) => {
+        Ok(new_flavors) => {
             let mut flavor_names = Vec::new();
-            for flavor in flavors {
-                flavor_names.push(flavor.0);
+
+            for flavor in &new_flavors {
+                flavor_names.push(flavor.flavor.to_owned());
+
+                if is_flavor_new(&flavor, &previous_flavors) {
+                    let notice = format!("*NEW* {}: {}", flavor.flavor, flavor.description);
+                    match alert(&notice) {
+                        Ok(res) => {
+                            dbg!(res);
+                        }
+                        Err(e) => error!("Error: {}", e.to_string()),
+                    };
+                    println!("{}", notice);
+                } else {
+                    println!("{}: {}", flavor.flavor, flavor.description);
+                }
             }
 
             Ok(CustomOutput {
