@@ -128,14 +128,13 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
 
     match query_previous_flavors(&dynamodb) {
         Ok(f) => {
-            dbg!(&f);
             match f.items {
                 Some(items) => {
                     for item in items {
                         // We know this is safe because both of these are String values
                         let fl: String = item["flavor"].to_owned().s.unwrap();
                         let de: String = item["description"].to_owned().s.unwrap();
-                        println!("Found flavor {}", &fl);
+                        info!("Found flavor {}", &fl);
                         previous_flavors.push(Flavor {
                             flavor: fl,
                             description: de,
@@ -143,12 +142,12 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
                     }
                 }
                 None => {
-                    println!("No flavors saved");
+                    info!("No flavors saved");
                 }
             }
         }
         Err(e) => {
-            println!("Error getting flavors: {}", e.to_string());
+            info!("Error getting flavors: {}", e.to_string());
         }
     }
 
@@ -162,23 +161,23 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
                 if is_flavor_new(&flavor, &previous_flavors) {
                     let notice = format!("*NEW* {}: {}", flavor.flavor, flavor.description);
                     match alert(&sns, &notice) {
-                        Ok(res) => {
-                            dbg!(res);
+                        Ok(_res) => {
+                            info!("Successfully notified SNS");
                         }
                         Err(e) => error!("Error: {}", e.to_string()),
                     };
-                    println!("{}", notice);
+                    info!("{}", notice);
 
                     match save_new_flavor(&dynamodb, flavor) {
                         Ok(_res) => {
-                            println!("Saved {} to database", flavor.flavor);
+                            info!("Saved {} to database", flavor.flavor);
                         }
                         Err(e) => {
                             error!("Error: {}", e.to_string());
                         }
                     }
                 } else {
-                    println!("{}: {}", flavor.flavor, flavor.description);
+                    info!("{}: {}", flavor.flavor, flavor.description);
                 }
             }
 
@@ -187,7 +186,7 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
             })
         }
         Err(e) => {
-            println!("Fail: {}", e.to_string());
+            info!("Fail: {}", e.to_string());
             error!(
                 "Error processing request {}: {}",
                 c.aws_request_id,
