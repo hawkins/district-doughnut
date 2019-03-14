@@ -14,10 +14,14 @@ extern crate simple_logger;
 use lambda::error::HandlerError;
 use regex::Regex;
 use rusoto_core::Region;
-use rusoto_dynamodb::{DynamoDb, DynamoDbClient, ScanError, ScanInput, ScanOutput};
+use rusoto_dynamodb::{
+    AttributeValue, DynamoDb, DynamoDbClient, PutItemError, PutItemInput, PutItemOutput, ScanError,
+    ScanInput, ScanOutput,
+};
 use rusoto_sns::{PublishError, PublishInput, PublishResponse, Sns, SnsClient};
 use select::document::Document;
 use select::predicate::{Class, Name, Predicate};
+use std::collections::HashMap;
 use std::env;
 use std::error::Error;
 use std::vec::Vec;
@@ -36,18 +40,15 @@ struct Flavor {
     description: String,
 }
 
-fn alert(message: &str) -> Result<PublishResponse, PublishError> {
+fn alert(sns: &SnsClient, message: &str) -> Result<PublishResponse, PublishError> {
     match env::var("TOPIC_ARN") {
-        Ok(arn) => {
-            let client = SnsClient::new(Region::UsEast1);
-            client
-                .publish(PublishInput {
-                    message: String::from(message),
-                    topic_arn: Some(arn),
-                    ..Default::default()
-                })
-                .sync()
-        }
+        Ok(arn) => sns
+            .publish(PublishInput {
+                message: String::from(message),
+                topic_arn: Some(arn),
+                ..Default::default()
+            })
+            .sync(),
         Err(_e) => {
             error!("TOPIC_ARN not set");
 
@@ -57,17 +58,43 @@ fn alert(message: &str) -> Result<PublishResponse, PublishError> {
     }
 }
 
-fn query_previous_flavors() -> Result<ScanOutput, ScanError> {
+fn query_previous_flavors(dynamodb: &DynamoDbClient) -> Result<ScanOutput, ScanError> {
     let input = ScanInput {
         table_name: String::from("district-doughnut-flavors"),
         ..Default::default()
     };
 
-    let client = DynamoDbClient::new(Region::UsEast1);
-    client.scan(input).sync()
+    dynamodb.scan(input).sync()
 }
 
-fn is_flavor_new(flavor: &Flavor, previous_flavors: &Vec<Flavor>) -> bool {
+fn save_new_flavor(
+    dynamodb: &DynamoDbClient,
+    flavor: &Flavor,
+) -> Result<PutItemOutput, PutItemError> {
+    let mut item = HashMap::<String, AttributeValue>::new();
+    item.insert(
+        String::from("flavor"),
+        AttributeValue {
+            s: Some(flavor.flavor.to_owned()),
+            ..Default::default()
+        },
+    );
+    item.insert(
+        String::from("description"),
+        AttributeValue {
+            s: Some(flavor.description.to_owned()),
+            ..Default::default()
+        },
+    );
+    let input = PutItemInput {
+        table_name: String::from("district-doughnut-flavors"),
+        item,
+        ..Default::default()
+    };
+    dynamodb.put_item(input).sync()
+}
+
+fn is_flavor_new(flavor: &Flavor, previous_flavors: &[Flavor]) -> bool {
     !previous_flavors.contains(flavor)
 }
 
@@ -94,9 +121,12 @@ fn scrape_new_flavors() -> Result<Vec<Flavor>, Box<std::error::Error>> {
 }
 
 fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, HandlerError> {
+    let sns = SnsClient::new(Region::UsEast1);
+    let dynamodb = DynamoDbClient::new(Region::UsEast1);
+
     let mut previous_flavors: Vec<Flavor> = Vec::new();
 
-    match query_previous_flavors() {
+    match query_previous_flavors(&dynamodb) {
         Ok(f) => {
             dbg!(&f);
             match f.items {
@@ -131,13 +161,22 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
 
                 if is_flavor_new(&flavor, &previous_flavors) {
                     let notice = format!("*NEW* {}: {}", flavor.flavor, flavor.description);
-                    match alert(&notice) {
+                    match alert(&sns, &notice) {
                         Ok(res) => {
                             dbg!(res);
                         }
                         Err(e) => error!("Error: {}", e.to_string()),
                     };
                     println!("{}", notice);
+
+                    match save_new_flavor(&dynamodb, flavor) {
+                        Ok(_res) => {
+                            println!("Saved {} to database", flavor.flavor);
+                        }
+                        Err(e) => {
+                            error!("Error: {}", e.to_string());
+                        }
+                    }
                 } else {
                     println!("{}: {}", flavor.flavor, flavor.description);
                 }
