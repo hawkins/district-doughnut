@@ -21,6 +21,7 @@ use rusoto_dynamodb::{
 use rusoto_sns::{PublishError, PublishInput, PublishResponse, Sns, SnsClient};
 use select::document::Document;
 use select::predicate::{Class, Name, Predicate};
+use std::borrow::ToOwned;
 use std::collections::HashMap;
 use std::env;
 use std::error::Error;
@@ -98,7 +99,7 @@ fn is_flavor_new(flavor: &Flavor, previous_flavors: &[Flavor]) -> bool {
     !previous_flavors.contains(flavor)
 }
 
-fn scrape_new_flavors() -> Result<Vec<Flavor>, Box<std::error::Error>> {
+fn scrape_current_flavors() -> Result<Vec<Flavor>, Box<std::error::Error>> {
     let body = reqwest::get("https://www.districtdoughnut.com")?.text()?;
 
     let dom = Document::from(body.as_str());
@@ -125,6 +126,9 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
     let dynamodb = DynamoDbClient::new(Region::UsEast1);
 
     let mut previous_flavors: Vec<Flavor> = Vec::new();
+    let mut current_flavors: Vec<Flavor> = Vec::new();
+    let mut new_flavors: Vec<Flavor> = Vec::new();
+    let mut flavor_names = Vec::new();
 
     match query_previous_flavors(&dynamodb) {
         Ok(f) => {
@@ -134,7 +138,6 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
                         // We know this is safe because both of these are String values
                         let fl: String = item["flavor"].to_owned().s.unwrap();
                         let de: String = item["description"].to_owned().s.unwrap();
-                        info!("Found flavor {}", &fl);
                         previous_flavors.push(Flavor {
                             flavor: fl,
                             description: de,
@@ -147,43 +150,16 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
             }
         }
         Err(e) => {
-            info!("Error getting flavors: {}", e.to_string());
+            return Err(c.new_error(&format!(
+                "Error getting previous flavors: {}",
+                e.to_string()
+            )));
         }
     }
 
-    match scrape_new_flavors() {
-        Ok(new_flavors) => {
-            let mut flavor_names = Vec::new();
-
-            for flavor in &new_flavors {
-                flavor_names.push(flavor.flavor.to_owned());
-
-                if is_flavor_new(&flavor, &previous_flavors) {
-                    let notice = format!("*NEW* {}: {}", flavor.flavor, flavor.description);
-                    match alert(&sns, &notice) {
-                        Ok(_res) => {
-                            info!("Successfully notified SNS");
-                        }
-                        Err(e) => error!("Error: {}", e.to_string()),
-                    };
-                    info!("{}", notice);
-
-                    match save_new_flavor(&dynamodb, flavor) {
-                        Ok(_res) => {
-                            info!("Saved {} to database", flavor.flavor);
-                        }
-                        Err(e) => {
-                            error!("Error: {}", e.to_string());
-                        }
-                    }
-                } else {
-                    info!("{}: {}", flavor.flavor, flavor.description);
-                }
-            }
-
-            Ok(CustomOutput {
-                message: format!("Found flavors: {}", flavor_names.join(", ")),
-            })
+    match scrape_current_flavors() {
+        Ok(flavors) => {
+            current_flavors = flavors;
         }
         Err(e) => {
             info!("Fail: {}", e.to_string());
@@ -192,9 +168,48 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
                 c.aws_request_id,
                 e.to_string()
             );
-            Err(c.new_error("Error scraping website"))
+
+            return Err(c.new_error(&format!(
+                "Error scraping website for new flavors: {}",
+                e.to_string()
+            )));
         }
     }
+
+    for flavor in current_flavors {
+        if is_flavor_new(&flavor, &previous_flavors) {
+            flavor_names.push(flavor.flavor.to_owned());
+            new_flavors.push(flavor);
+        }
+    }
+
+    for flavor in new_flavors {
+        let notice = format!("*NEW* {}: {}", flavor.flavor, flavor.description);
+
+        info!("{}", notice);
+        match alert(&sns, &notice) {
+            Ok(_res) => {
+                info!("Successfully notified SNS");
+            }
+            Err(e) => error!("Error: {}", e.to_string()),
+        };
+
+        match save_new_flavor(&dynamodb, &flavor) {
+            Ok(_res) => {
+                info!("Saved {} to database", flavor.flavor);
+            }
+            Err(e) => {
+                error!("Error: {}", e.to_string());
+            }
+        }
+    }
+
+    // TODO: Trim no longer available flavors by looking at previous - current and alert sns
+    let mut unavailable_flavors = Vec::new();
+
+    Ok(CustomOutput {
+        message: format!("Found flavors: {}", flavor_names.join(", ")),
+    })
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
