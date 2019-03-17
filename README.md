@@ -19,17 +19,12 @@ linker = "x86_64-linux-musl-gcc"' > .cargo/config'
 
 Otherwise, install Docker
 
-## Building
+## Building and deploying
 
-For local compilation:
-
-```sh
-OPENSSL_DIR=$(brew --prefix openssl) cargo build --release --target x86_64-unknown-linux-musl
-zip -j rust.zip ./target/x86_64-unknown-linux-musl/release/bootstrap
-```
-
-For compiling in Docker:
+For compiling in Docker and deploying:
 
 ```sh
-./package.sh
+# Edit upload.sh first to change parameters to suit you
+# Then run upload.sh
+./upload.sh
 ```
