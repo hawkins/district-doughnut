@@ -18,6 +18,7 @@ BUCKET=code-archive
 STACK_NAME=district-doughnut
 PACKAGED_TEMPLATE=packaged.yaml
 TABLE_NAME=district-doughnut-flavors
+PHONE_NUMBER=15551234567
 
 # Package will upload the code to the S3 bucket
 aws cloudformation package \
@@ -33,5 +34,6 @@ aws cloudformation deploy \
   --stack-name $STACK_NAME \
   --capabilities CAPABILITY_IAM \
   --parameter-overrides \
-  TableName=$TABLE_NAME
+  TableName=$TABLE_NAME \
+  PhoneNumber=$PHONE_NUMBER
 

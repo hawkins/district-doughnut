@@ -11,7 +11,7 @@ Resources:
       Environment:
         Variables:
           RUST_BACKTRACE: 1
-          TOPIC_ARN: ""
+          TOPIC_ARN: !Ref Topic
           TABLE_NAME: !Ref Table
 
   ExecutionRole:
@@ -56,8 +56,28 @@ Resources:
             - dynamodb:DeleteItem
           Resource: !GetAtt Table.Arn
 
+  Topic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Protocol: sms
+          Endpoint: !Ref PhoneNumber
+
+  TopicPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Roles:
+        - !Ref ExecutionRole
+      PolicyName: topic-policy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          Effect: Allow
+          Action:
+            - sns:Publish
+          Resource: !Ref Topic
+
   # cloudwatch event
-  # sns topic
 
 Parameters:
   TableName:
@@ -65,3 +85,8 @@ Parameters:
     Description: "DynamoDB table name in which the function will store the menu"
     MinLength: 1
     MaxLength: 255
+  PhoneNumber:
+    Type: String
+    Description: "SMS number with country code to subscribe"
+    MinLength: 1
+    MaxLength: 15
