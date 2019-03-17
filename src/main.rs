@@ -61,11 +61,21 @@ fn alert(sns: &SnsClient, message: &str) -> Result<PublishResponse, PublishError
 
 fn query_previous_flavors(dynamodb: &DynamoDbClient) -> Result<ScanOutput, ScanError> {
     let input = ScanInput {
-        table_name: String::from("district-doughnut-flavors"),
+        table_name: String::from(get_table_name().unwrap()),
         ..Default::default()
     };
 
     dynamodb.scan(input).sync()
+}
+
+fn get_table_name() -> Option<String> {
+    match env::var("TABLE_NAME") {
+        Ok(table_name) => Some(table_name),
+        Err(_e) => {
+            error!("TABLE_NAME not set");
+            None
+        }
+    }
 }
 
 fn save_new_flavor(
@@ -88,7 +98,7 @@ fn save_new_flavor(
         },
     );
     let input = PutItemInput {
-        table_name: String::from("district-doughnut-flavors"),
+        table_name: String::from(get_table_name().unwrap()),
         item,
         ..Default::default()
     };
@@ -108,7 +118,7 @@ fn remove_old_flavor(
         },
     );
     let input = DeleteItemInput {
-        table_name: String::from("district-doughnut-flavors"),
+        table_name: String::from(get_table_name().unwrap()),
         key,
         ..Default::default()
     };
@@ -142,7 +152,9 @@ fn scrape_current_flavors() -> Result<Vec<Flavor>, Box<std::error::Error>> {
 }
 
 fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, HandlerError> {
+    info!("Creating SNS client");
     let sns = SnsClient::new(Region::UsEast1);
+    info!("Creating Dynamo client");
     let dynamodb = DynamoDbClient::new(Region::UsEast1);
 
     let mut previous_flavors: Vec<Flavor> = Vec::new();
@@ -150,6 +162,7 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
     let mut new_flavors: Vec<Flavor> = Vec::new();
     let mut flavor_names = Vec::new();
 
+    info!("Querying Dynamo for previous flavors");
     match query_previous_flavors(&dynamodb) {
         Ok(f) => {
             match f.items {
@@ -165,7 +178,7 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
                     }
                 }
                 None => {
-                    info!("No flavors saved");
+                    info!("No previous flavors saved");
                 }
             }
         }
@@ -177,6 +190,7 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
         }
     }
 
+    info!("Scraping website for current flavors");
     match scrape_current_flavors() {
         Ok(flavors) => {
             current_flavors = flavors;
@@ -252,6 +266,7 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
         }
     }
 
+    info!("Done!");
     Ok(CustomOutput {
         message: format!("Found flavors: {}", flavor_names.join(", ")),
     })
