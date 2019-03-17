@@ -77,7 +77,21 @@ Resources:
             - sns:Publish
           Resource: !Ref Topic
 
-  # cloudwatch event
+  EventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: rate(1 day)
+      Targets:
+        - Id: Scheduler
+          Arn: !GetAtt Function.Arn
+
+  EventsPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt Function.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EventRule.Arn
 
 Parameters:
   TableName:
