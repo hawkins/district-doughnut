@@ -130,7 +130,7 @@ fn is_flavor_new(flavor: &Flavor, previous_flavors: &[Flavor]) -> bool {
 }
 
 fn scrape_current_flavors() -> Result<Vec<Flavor>, Box<std::error::Error>> {
-    let body = reqwest::get("https://www.districtdoughnut.com")?.text()?;
+    let body = reqwest::get("https://www.districtdoughnut.com/doughnuts")?.text()?;
 
     let dom = Document::from(body.as_str());
 
