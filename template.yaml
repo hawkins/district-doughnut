@@ -14,6 +14,13 @@ Resources:
           TOPIC_ARN: !Ref Topic
           TABLE_NAME: !Ref Table
 
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    DependsOn: Function
+    Properties:
+      RetentionInDays: 14
+      LogGroupName: !Join ["", ["/aws/lambda/", !Ref Function]]
+
   ExecutionRole:
     Type: AWS::IAM::Role
     Properties:
