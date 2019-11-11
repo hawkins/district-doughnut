@@ -36,8 +36,8 @@ struct CustomOutput {
 }
 
 #[derive(PartialEq, Clone)]
-struct Flavor {
-    flavor: String,
+struct Item {
+    item: String,
     description: String,
 }
 
@@ -59,7 +59,7 @@ fn alert(sns: &SnsClient, message: &str) -> Result<PublishResponse, PublishError
     }
 }
 
-fn query_previous_flavors(dynamodb: &DynamoDbClient) -> Result<ScanOutput, ScanError> {
+fn query_previous_items(dynamodb: &DynamoDbClient) -> Result<ScanOutput, ScanError> {
     let input = ScanInput {
         table_name: String::from(get_table_name().unwrap()),
         ..Default::default()
@@ -78,42 +78,39 @@ fn get_table_name() -> Option<String> {
     }
 }
 
-fn save_new_flavor(
-    dynamodb: &DynamoDbClient,
-    flavor: &Flavor,
-) -> Result<PutItemOutput, PutItemError> {
-    let mut item = HashMap::<String, AttributeValue>::new();
-    item.insert(
-        String::from("flavor"),
+fn save_new_item(dynamodb: &DynamoDbClient, item: &Item) -> Result<PutItemOutput, PutItemError> {
+    let mut table_item = HashMap::<String, AttributeValue>::new();
+    table_item.insert(
+        String::from("item"),
         AttributeValue {
-            s: Some(flavor.flavor.to_owned()),
+            s: Some(item.item.to_owned()),
             ..Default::default()
         },
     );
-    item.insert(
+    table_item.insert(
         String::from("description"),
         AttributeValue {
-            s: Some(flavor.description.to_owned()),
+            s: Some(item.description.to_owned()),
             ..Default::default()
         },
     );
     let input = PutItemInput {
         table_name: String::from(get_table_name().unwrap()),
-        item,
+        item: table_item,
         ..Default::default()
     };
     dynamodb.put_item(input).sync()
 }
 
-fn remove_old_flavor(
+fn remove_old_item(
     dynamodb: &DynamoDbClient,
-    flavor: &Flavor,
+    item: &Item,
 ) -> Result<DeleteItemOutput, DeleteItemError> {
     let mut key = HashMap::<String, AttributeValue>::new();
     key.insert(
-        String::from("flavor"),
+        String::from("item"),
         AttributeValue {
-            s: Some(flavor.flavor.to_owned()),
+            s: Some(item.item.to_owned()),
             ..Default::default()
         },
     );
@@ -125,31 +122,31 @@ fn remove_old_flavor(
     dynamodb.delete_item(input).sync()
 }
 
-fn is_flavor_new(flavor: &Flavor, previous_flavors: &[Flavor]) -> bool {
-    !previous_flavors.contains(flavor)
+fn is_item_new(item: &Item, previous_items: &[Item]) -> bool {
+    !previous_items.contains(item)
 }
 
-fn scrape_current_flavors() -> Result<Vec<Flavor>, Box<std::error::Error>> {
+fn scrape_current_items() -> Result<Vec<Item>, Box<std::error::Error>> {
     let url = env::var("MENU_URL")?;
     let body = reqwest::get(&url)?.text()?;
 
     let dom = Document::from(body.as_str());
 
-    let mut flavors: Vec<Flavor> = Vec::new();
-    for node in dom.find(Class("margin-wrapper").descendant(Name("a"))) {
-        let flavor = node.attr("data-title").unwrap().to_owned();
+    let mut items: Vec<Item> = Vec::new();
+    for node in dom.find(Class("product-name").descendant(Name("a"))) {
+        // TODO: Make item/description scraping configurable somehow
+        let item = node.text().to_owned();
         let re = Regex::new(r"<.+?>").unwrap();
-        let description = re
-            .replace_all(node.attr("data-description").unwrap(), "")
-            .into_owned();
+        //let description = re
+        //    .replace_all(node.attr("data-description").unwrap(), "")
+        //    .into_owned();
+        // TODO: Default description
+        let description = String::from("");
 
-        flavors.push(Flavor {
-            flavor,
-            description,
-        });
+        items.push(Item { item, description });
     }
 
-    Ok(flavors)
+    Ok(items)
 }
 
 fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, HandlerError> {
@@ -158,43 +155,40 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
     info!("Creating Dynamo client");
     let dynamodb = DynamoDbClient::new(Region::UsEast1);
 
-    let mut previous_flavors: Vec<Flavor> = Vec::new();
-    let mut current_flavors: Vec<Flavor>;
-    let mut new_flavors: Vec<Flavor> = Vec::new();
-    let mut flavor_names = Vec::new();
+    let mut previous_items: Vec<Item> = Vec::new();
+    let mut current_items: Vec<Item>;
+    let mut new_items: Vec<Item> = Vec::new();
+    let mut item_names = Vec::new();
 
-    info!("Querying Dynamo for previous flavors");
-    match query_previous_flavors(&dynamodb) {
+    info!("Querying Dynamo for previous items");
+    match query_previous_items(&dynamodb) {
         Ok(f) => {
             match f.items {
                 Some(items) => {
                     for item in items {
                         // We know this is safe because both of these are String values
-                        let fl: String = item["flavor"].to_owned().s.unwrap();
+                        let fl: String = item["item"].to_owned().s.unwrap();
                         let de: String = item["description"].to_owned().s.unwrap();
-                        previous_flavors.push(Flavor {
-                            flavor: fl,
+                        previous_items.push(Item {
+                            item: fl,
                             description: de,
                         });
                     }
                 }
                 None => {
-                    info!("No previous flavors saved");
+                    info!("No previous items saved");
                 }
             }
         }
         Err(e) => {
-            return Err(c.new_error(&format!(
-                "Error getting previous flavors: {}",
-                e.to_string()
-            )));
+            return Err(c.new_error(&format!("Error getting previous items: {}", e.to_string())));
         }
     }
 
-    info!("Scraping website for current flavors");
-    match scrape_current_flavors() {
-        Ok(flavors) => {
-            current_flavors = flavors;
+    info!("Scraping website for current items");
+    match scrape_current_items() {
+        Ok(items) => {
+            current_items = items;
         }
         Err(e) => {
             info!("Fail: {}", e.to_string());
@@ -205,21 +199,21 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
             );
 
             return Err(c.new_error(&format!(
-                "Error scraping website for new flavors: {}",
+                "Error scraping website for new items: {}",
                 e.to_string()
             )));
         }
     }
 
-    for flavor in &current_flavors {
-        flavor_names.push(flavor.flavor.to_owned());
-        if is_flavor_new(&flavor, &previous_flavors) {
-            new_flavors.push(flavor.clone());
+    for item in &current_items {
+        item_names.push(item.item.to_owned());
+        if is_item_new(&item, &previous_items) {
+            new_items.push(item.clone());
         }
     }
 
-    for flavor in new_flavors {
-        let notice = format!("*NEW* {}: {}", flavor.flavor, flavor.description);
+    for item in new_items {
+        let notice = format!("*NEW* {}: {}", item.item, item.description);
 
         info!("{}", notice);
         match alert(&sns, &notice) {
@@ -229,9 +223,9 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
             Err(e) => error!("Error: {}", e.to_string()),
         };
 
-        match save_new_flavor(&dynamodb, &flavor) {
+        match save_new_item(&dynamodb, &item) {
             Ok(_res) => {
-                info!("Saved {} to database", flavor.flavor);
+                info!("Saved {} to database", item.item);
             }
             Err(e) => {
                 error!("Error: {}", e.to_string());
@@ -239,14 +233,14 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
         }
     }
 
-    let mut unavailable_flavors = Vec::new();
-    for flavor in previous_flavors {
-        if !current_flavors.contains(&flavor) {
-            unavailable_flavors.push(flavor);
+    let mut unavailable_items = Vec::new();
+    for item in previous_items {
+        if !current_items.contains(&item) {
+            unavailable_items.push(item);
         }
     }
-    for flavor in unavailable_flavors {
-        let notice = format!("{} is no longer available", flavor.flavor);
+    for item in unavailable_items {
+        let notice = format!("{} is no longer available", item.item);
 
         info!("{}", notice);
 
@@ -257,9 +251,9 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
             Err(e) => error!("Error: {}", e.to_string()),
         };
 
-        match remove_old_flavor(&dynamodb, &flavor) {
+        match remove_old_item(&dynamodb, &item) {
             Ok(_res) => {
-                info!("Removed {} from database", flavor.flavor);
+                info!("Removed {} from database", item.item);
             }
             Err(e) => {
                 error!("Error: {}", e.to_string());
@@ -269,7 +263,7 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
 
     info!("Done!");
     Ok(CustomOutput {
-        message: format!("Found flavors: {}", flavor_names.join(", ")),
+        message: format!("Found items: {}", item_names.join(", ")),
     })
 }
 

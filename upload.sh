@@ -19,8 +19,8 @@ STACK_NAME=fast-foodie
 PACKAGED_TEMPLATE=packaged.yaml
 TABLE_NAME=fast-foodie
 PHONE_NUMBER=15551234567
-MENU_URL="https://www.districtdoughnut.com/doughnuts"
-RESTAURANT="District-Doughtnut"
+MENU_URL="https://www.tacobell.com/food/new?store=028995"
+RESTAURANT="Taco-Bell"
 
 # Package will upload the code to the S3 bucket
 aws cloudformation package \
