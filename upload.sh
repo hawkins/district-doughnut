@@ -15,10 +15,12 @@ docker run --rm \
 
 # Configure deployment here
 BUCKET=code-archive
-STACK_NAME=district-doughnut
+STACK_NAME=fast-foodie
 PACKAGED_TEMPLATE=packaged.yaml
-TABLE_NAME=district-doughnut-flavors
+TABLE_NAME=fast-foodie
 PHONE_NUMBER=15551234567
+MENU_URL="https://www.districtdoughnut.com/doughnuts"
+RESTAURANT="District-Doughtnut"
 
 # Package will upload the code to the S3 bucket
 aws cloudformation package \
@@ -35,5 +37,7 @@ aws cloudformation deploy \
   --capabilities CAPABILITY_IAM \
   --parameter-overrides \
   TableName=$TABLE_NAME \
-  PhoneNumber=$PHONE_NUMBER
+  PhoneNumber=$PHONE_NUMBER \
+  Menu=$MENU_URL \
+  Restaurant=$RESTAURANT
 

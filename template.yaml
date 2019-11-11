@@ -13,6 +13,8 @@ Resources:
           RUST_BACKTRACE: 1
           TOPIC_ARN: !Ref Topic
           TABLE_NAME: !Ref Table
+          MENU_URL: !Ref Menu
+          RESTAURANT_NAME: !Ref Restaurant
 
   LogGroup:
     Type: AWS::Logs::LogGroup
@@ -113,3 +115,9 @@ Parameters:
     Description: "SMS number with country code to subscribe"
     MinLength: 1
     MaxLength: 15
+  Menu:
+    Type: String
+    Description: "URL of the menu for this restaurant"
+  Restaurant:
+    Type: String
+    Description: "Name of the restaurant"

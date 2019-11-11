@@ -130,7 +130,8 @@ fn is_flavor_new(flavor: &Flavor, previous_flavors: &[Flavor]) -> bool {
 }
 
 fn scrape_current_flavors() -> Result<Vec<Flavor>, Box<std::error::Error>> {
-    let body = reqwest::get("https://www.districtdoughnut.com/doughnuts")?.text()?;
+    let url = env::var("MENU_URL")?;
+    let body = reqwest::get(&url)?.text()?;
 
     let dom = Document::from(body.as_str());
 
@@ -158,7 +159,7 @@ fn my_handler(_e: CustomEvent, c: lambda::Context) -> Result<CustomOutput, Handl
     let dynamodb = DynamoDbClient::new(Region::UsEast1);
 
     let mut previous_flavors: Vec<Flavor> = Vec::new();
-    let mut current_flavors: Vec<Flavor> = Vec::new();
+    let mut current_flavors: Vec<Flavor>;
     let mut new_flavors: Vec<Flavor> = Vec::new();
     let mut flavor_names = Vec::new();
 

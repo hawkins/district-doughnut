@@ -1,8 +1,8 @@
-# District Doughnut
+# Fast Foodie
 
-A lambda function to scape the District Doughnut website and look for new flavors
+An AWS lambda function to scape fast food menu and look for new items
 
-Sends a notification to an SNS topic for both newly released and discarded flavors
+Sends a notification to an SNS topic for both newly released and discarded items
 
 ## Setup
 
