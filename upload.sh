@@ -1,7 +1,7 @@
 set -e
 
 # We create release rather than debug builds.
-# Debug builds are very large and  applications
+# Debug builds are very large and applications
 # may well exceed the maximum deployment package
 # size for an AWS Lambda function.
 docker run --rm \
